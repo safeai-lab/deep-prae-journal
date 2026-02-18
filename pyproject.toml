@@ -1,0 +1,39 @@
+[project]
+name = "deepprae"
+version = "1.0.0"
+description = "Deep Probabilistic Rare Event Estimation"
+authors = [
+    {name = "Mansur M. Arief"}
+]
+requires-python = ">=3.8"
+license = {text = "MIT"}
+
+dependencies = [
+    "numpy>=1.19.0",
+    "scipy>=1.5.0",
+    "torch>=1.7.0",
+    "scikit-learn>=0.23.0",
+    "matplotlib>=3.3.0",
+    "pyomo>=6.0.0",
+    "tqdm>=4.50.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.10",
+    "ipython>=7.20.0",
+    "jupyter>=1.0.0",
+]
+solvers = [
+    "gurobipy>=9.5.0",
+]
+
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deepprae*"]
+exclude = ["tests*", "docs*"]
