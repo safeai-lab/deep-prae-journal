@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+
+# Secrets & credentials
+.env
+gurobi.lic
+
+# Results & data (large, generated)
+results/
+results_test/
+ablation_results/
+best_config_trials.json
+quick_ablation_results.json
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
