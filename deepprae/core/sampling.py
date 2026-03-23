@@ -32,7 +32,18 @@ class ProposalDistribution:
             dominating_points: Array of shape [num_components, dimension]
             sigma: Standard deviation (same for all dimensions and components)
             weights: Optional mixing weights (defaults to uniform)
+
+        Raises:
+            ValueError: If dominating_points is empty
         """
+        # Validate input - must have at least one point
+        if dominating_points is None or dominating_points.size == 0:
+            raise ValueError(
+                "No dominating points found. This usually means Gurobi optimization failed. "
+                "Check: 1) Gurobi license is valid, 2) TimeLimit is sufficient, "
+                "3) Neural network learned a valid decision boundary."
+            )
+
         if dominating_points.ndim == 1:
             dominating_points = dominating_points.reshape(1, -1)
 

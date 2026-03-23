@@ -1,17 +1,20 @@
 """
 Example 1: 2D Sigmoid Functions
 
-Estimates P(g(X) > gamma) where X ~ N([5,5], 0.25*I_2) and
-g(x) is a complex function involving sigmoid combinations.
+Estimates P(g(X) > threshold) where X ~ N([5,5], 0.25*I_2) and
+g(x) is a combination of scalar sigmoid functions.
 
 This example demonstrates Deep-PrAE on ultra-rare events with
 probabilities as small as 10^-24.
 
-Paper specifications:
-- n1 = 10,000, n2 = 20,000 (total n = 30,000)
-- Architecture: 4 hidden layers (2, 8, 4, 2 nodes)
-- Training: 500 iterations, batch_size = n1/20, SGD
-- Gamma values: 1.0 to 2.6
+Original repo specifications (github.com/safeai-lab/Deep-PrAE):
+- n1 = 10,000 (uniform sampling over [0,10]^2)
+- n2 = 20,000 (importance sampling from proposal)
+- Architecture: Linear(2,32) -> ReLU -> Linear(32,2)
+- Training: 1000 iterations, batch_size=1000, Adam lr=1e-3
+- class_weights: [0.1, 1.0]
+- theta = [-1, 0.2, -0.6, 0.2], c = [3, 7, 8, 6]
+- Gamma sweep: linspace(0, 2.6, 14), threshold fixed at 1.8
 """
 
 import numpy as np
@@ -27,16 +30,24 @@ class Example1_2DSigmoid:
     """
     Example 1: 2D Sigmoid rare-event estimation.
 
-    Problem: Estimate P(X in S_gamma) where S_gamma = {x: g(x) > gamma}
-    and g is a combination of sigmoid functions.
+    Problem: Estimate P(X in S_gamma) where S_gamma = {x: g(x) > threshold}
+    and g is a combination of scalar sigmoid functions.
+
+    From the original repo, the g-function is:
+      g(x) = |theta[0]*sigmoid(x-gamma-c[0]) + ... + theta[3]*sigmoid(x-gamma-c[3])|.sum(axis=1)
+    where theta and c are scalars broadcast across both dimensions.
     """
+
+    # Fixed failure threshold (the paper uses 1.8)
+    THRESHOLD = 1.8
 
     def __init__(self, gamma: float = 1.8):
         """
         Initialize Example 1.
 
         Args:
-            gamma: Rarity parameter (larger gamma => rarer event)
+            gamma: Rarity parameter controlling how deep inside the sigmoid
+                   the rare-event boundary lies. gamma sweeps from 0 to 2.6.
         """
         self.gamma = gamma
         self.config = EXAMPLE1_CONFIG
@@ -45,34 +56,22 @@ class Example1_2DSigmoid:
         self.mu = self.config.mu
         self.sigma = self.config.sigma
 
-        # Sigmoid function parameters (from paper)
-        self.theta1 = np.array([1.0, 0.5])
-        self.theta2 = np.array([0.5, 1.0])
-        self.theta3 = np.array([-0.8, 0.8])
-        self.theta4 = np.array([0.8, -0.8])
-
-        self.c1 = np.array([2.0, 2.0])
-        self.c2 = np.array([-2.0, 2.0])
-        self.c3 = np.array([2.0, -2.0])
-        self.c4 = np.array([-2.0, -2.0])
+        # Sigmoid function parameters (from original repo D-PrAE-2D.ipynb)
+        self.theta = np.array([-1.0, 0.2, -0.6, 0.2])
+        self.c = np.array([3.0, 7.0, 8.0, 6.0])
 
     def sigmoid(self, x: np.ndarray) -> np.ndarray:
-        """
-        Element-wise sigmoid function psi(x) = exp(x) / (1 + exp(x)).
-
-        Args:
-            x: Input array of any shape
-
-        Returns:
-            Sigmoid output of same shape
-        """
-        return np.exp(np.minimum(x, 100)) / (1 + np.exp(np.minimum(x, 100)))
+        """Element-wise sigmoid: exp(x) / (1 + exp(x))."""
+        x_clip = np.clip(x, -100, 100)
+        return np.exp(x_clip) / (1 + np.exp(x_clip))
 
     def g_function(self, x: np.ndarray) -> np.ndarray:
         """
-        Compute g(x) = ||theta1*psi(x-c1-gamma) + ... + theta4*psi(x-c4-gamma)||.
+        Compute g(x) following the original repo formulation:
+          g(x) = sum_over_dims( |sum_k theta[k] * sigmoid(x - gamma - c[k])| )
 
-        Note: This follows the original paper formulation where gamma appears inside the sigmoid.
+        Each theta[k] and c[k] is a scalar applied identically to both dimensions.
+        The absolute value is taken per-element, then summed across dimensions (axis=1).
 
         Args:
             x: Input of shape [N, 2] or [2,]
@@ -83,21 +82,22 @@ class Example1_2DSigmoid:
         if x.ndim == 1:
             x = x.reshape(1, -1)
 
-        # Compute each term (gamma IS part of g-function as per original paper)
-        term1 = self.theta1 * self.sigmoid(x - self.c1 - self.gamma)
-        term2 = self.theta2 * self.sigmoid(x - self.c2 - self.gamma)
-        term3 = self.theta3 * self.sigmoid(x - self.c3 - self.gamma)
-        term4 = self.theta4 * self.sigmoid(x - self.c4 - self.gamma)
+        # Compute sum of theta[k] * sigmoid(x - gamma - c[k]) for each k
+        # x shape: [N, 2], c[k] is scalar broadcast to both dims
+        total = np.zeros_like(x)
+        for k in range(4):
+            total += self.theta[k] * self.sigmoid(x - self.gamma - self.c[k])
 
-        # Sum and compute norm
-        total = term1 + term2 + term3 + term4
-        g_vals = np.linalg.norm(total, axis=-1)
+        # Take absolute value and sum across dimensions
+        g_vals = np.abs(total).sum(axis=1)
 
         return g_vals if len(g_vals) > 1 else g_vals[0]
 
     def indicator_function(self, x: np.ndarray) -> np.ndarray:
         """
-        Indicator function: I(g(x) > gamma).
+        Indicator function: I(g(x) > threshold).
+
+        The threshold is fixed at 1.8 (from the original repo).
 
         Args:
             x: Input of shape [N, 2] or [2,]
@@ -106,7 +106,7 @@ class Example1_2DSigmoid:
             Binary indicators of shape [N,] or scalar
         """
         g_vals = self.g_function(x)
-        return (g_vals > self.gamma).astype(float)
+        return (g_vals > self.THRESHOLD).astype(float)
 
     def original_pdf(self, x: np.ndarray) -> np.ndarray:
         """
@@ -145,46 +145,71 @@ class Example1_2DSigmoid:
             )
 
         elif method == 'uniform':
-            # Uniform sampling in a box around rare-event set
-            # For visualization, sample from a larger region
-            x_range = [-2, 10]
-            y_range = [-2, 10]
+            # Uniform sampling over [0, 10]^2 (matches original repo)
             X_stage1 = np.random.uniform(
-                low=[x_range[0], y_range[0]],
-                high=[x_range[1], y_range[1]],
+                low=[0.0, 0.0],
+                high=[10.0, 10.0],
                 size=(n1, 2)
             )
 
         elif method == 'ce':
-            # Cross-entropy method: Start from original, then adapt toward rare events
-            # Initial sampling
-            X_initial = np.random.multivariate_normal(
-                mean=self.mu,
-                cov=(self.sigma ** 2) * np.eye(2),
-                size=n1 // 2
-            )
-            Y_initial = self.indicator_function(X_initial)
+            # Iterative Cross-Entropy method (CE Naive = single Gaussian)
+            # Following the standard CE approach: iteratively shift distribution
+            # toward rare events using intermediate thresholds.
+            ce_samples_per_iter = max(1000, n1 // 5)
+            rho = 0.1  # Elite fraction
+            max_ce_iters = 10
 
-            # Adaptive sampling: if we found rare events, sample near their mean
-            if Y_initial.sum() > 0:
-                X_rare = X_initial[Y_initial == 1]
-                adapted_mean = np.mean(X_rare, axis=0)
+            ce_mu = self.mu.copy()
+            ce_cov = (self.sigma ** 2) * np.eye(2)
+            all_ce_samples = []
 
-                X_adapted = np.random.multivariate_normal(
-                    mean=adapted_mean,
-                    cov=(self.sigma ** 2) * np.eye(2),
-                    size=n1 - len(X_initial)
+            for ce_iter in range(max_ce_iters):
+                X_ce = np.random.multivariate_normal(
+                    mean=ce_mu, cov=ce_cov, size=ce_samples_per_iter
                 )
+                g_vals = self.g_function(X_ce)
 
-                X_stage1 = np.vstack([X_initial, X_adapted])
+                # Determine intermediate threshold (rho-quantile of g values)
+                threshold = np.quantile(g_vals, 1 - rho)
+
+                # If threshold already exceeds gamma, we've converged
+                if threshold >= self.gamma:
+                    # Keep all samples above gamma
+                    elite_mask = g_vals >= self.gamma
+                    if elite_mask.sum() > 0:
+                        elite = X_ce[elite_mask]
+                    else:
+                        elite = X_ce[g_vals >= threshold]
+                    all_ce_samples.append(X_ce)
+                    break
+
+                # Select elite samples
+                elite_mask = g_vals >= threshold
+                elite = X_ce[elite_mask]
+                all_ce_samples.append(X_ce)
+
+                if len(elite) < 2:
+                    break
+
+                # Update CE distribution (MLE of elite samples)
+                ce_mu = np.mean(elite, axis=0)
+                ce_cov = np.cov(elite.T) + 1e-6 * np.eye(2)
+
+            # Collect final Stage 1 samples: mix of CE iterations
+            # Sample from the final CE distribution to get n1 total
+            all_ce = np.vstack(all_ce_samples) if all_ce_samples else np.array([]).reshape(0, 2)
+            if len(all_ce) >= n1:
+                # Subsample to n1
+                idx = np.random.choice(len(all_ce), size=n1, replace=False)
+                X_stage1 = all_ce[idx]
             else:
-                # If no rare events found, just sample more from original
-                X_extra = np.random.multivariate_normal(
-                    mean=self.mu,
-                    cov=(self.sigma ** 2) * np.eye(2),
-                    size=n1 - len(X_initial)
+                # Generate more from final CE distribution
+                n_more = n1 - len(all_ce)
+                X_more = np.random.multivariate_normal(
+                    mean=ce_mu, cov=ce_cov, size=n_more
                 )
-                X_stage1 = np.vstack([X_initial, X_extra])
+                X_stage1 = np.vstack([all_ce, X_more]) if len(all_ce) > 0 else X_more
 
         else:
             raise ValueError(f"Unknown sampling method: {method}")
@@ -198,7 +223,8 @@ class Example1_2DSigmoid:
         self,
         n1: Optional[int] = None,
         n2: Optional[int] = None,
-        stage1_method: str = 'naive',
+        stage1_method: str = 'uniform',
+        use_true_indicator: bool = True,
         verbose: bool = True,
         _test_mode: bool = False
     ) -> Dict:
@@ -274,6 +300,7 @@ class Example1_2DSigmoid:
             lr=self.config.lr,
             class_weights=self.config.class_weights,
             l2_reg=self.config.l2_reg,
+            use_true_indicator=use_true_indicator,
             verbose=verbose
         )
 

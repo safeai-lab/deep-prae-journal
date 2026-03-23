@@ -89,7 +89,7 @@ def run_example3(
 
 
 def run_example4(
-    gamma: float = 20.0,
+    gamma: float = 140.0,
     n1: Optional[int] = None,
     n2: Optional[int] = None,
     verbose: bool = True,

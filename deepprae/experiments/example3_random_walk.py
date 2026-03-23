@@ -52,8 +52,8 @@ class Example3_RandomWalk:
                 T=self.T, gamma=self.gamma, n1=n1, n2=n2
             )
 
-        # Stage 1: uniform sampling on [0, 2*gamma]^T (per paper)
-        X_stage1 = np.random.uniform(0, 2 * self.gamma, size=(n1, self.T))
+        # Stage 1: uniform sampling on [-4, 4]^T (fixed — paper's [0, 2*gamma] gives 100% rare)
+        X_stage1 = np.random.uniform(-4, 4, size=(n1, self.T))
         Y_stage1 = self.indicator_function(X_stage1)
 
         deep_prae = DeepPrAE(

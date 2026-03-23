@@ -116,7 +116,8 @@ def train_classifier(
     class_weights: List[float] = [1.0, 1.0],
     l2_reg: float = 0.0,
     log: bool = False,
-    save_path: Optional[str] = None
+    save_path: Optional[str] = None,
+    optimizer_type: str = 'adam'
 ) -> Tuple[NeuralNetworkClassifier, dict]:
     """
     Train neural network classifier for rare-event detection.
@@ -160,7 +161,10 @@ def train_classifier(
     ).to(device)
 
     # Set up optimizer with L2 regularization
-    optimizer = optim.SGD(net.parameters(), lr=lr, weight_decay=l2_reg)
+    if optimizer_type == 'adam':
+        optimizer = optim.Adam(net.parameters(), lr=lr, weight_decay=l2_reg)
+    else:
+        optimizer = optim.SGD(net.parameters(), lr=lr, weight_decay=l2_reg)
 
     # Set up loss function with class weights
     class_weight = torch.Tensor(class_weights).to(device)

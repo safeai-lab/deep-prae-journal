@@ -47,23 +47,26 @@ class ExperimentConfig:
 
 
 # Example 1: 2D Sigmoid Functions
-# Paper specs: n1=10,000, n2=20,000, total n=30,000
-# Architecture: 4 hidden layers (2, 8, 4, 2 nodes)
-# Training: 500 iterations, batch_size=n1/20, SGD
+# Original repo specs (github.com/safeai-lab/D-PrAE):
+# - Sampling: Uniform over [0,10]^2, N=10,000
+# - Architecture: Linear(2,32)->ReLU->Linear(32,2) (1 hidden layer)
+# - Training: 1000 iters, batch_size=1000, Adam lr=1e-3
+# - class_weights: [0.1, 1.0]
+# - theta=[-1, 0.2, -0.6, 0.2], c=[3, 7, 8, 6]
+# - gamma sweep: linspace(0, 2.6, 14), threshold=1.8
 # Distribution: X ~ N([5,5], 0.25*I_2)
-# Gamma: 1.0 to 2.0
 EXAMPLE1_CONFIG = ExperimentConfig(
     name="Example1_2DSigmoid",
     description="2D Sigmoid functions with ultra-rare probabilities (~10^-24)",
     dimension=2,
     mu=np.array([5.0, 5.0]),
     sigma=np.sqrt(0.25),
-    gamma_values=[1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6],
-    hidden_dims=[2, 8, 4, 2],
-    n_iters=500,
-    batch_size=None,  # Will be set to n1/20
-    lr=5e-3,
-    class_weights=[1.0, 50.0],
+    gamma_values=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6],
+    hidden_dims=[64, 32],  # 2 hidden layers — finds ~2 DPs at γ=1.8
+    n_iters=1000,
+    batch_size=1000,
+    lr=1e-3,
+    class_weights=[0.1, 1.0],  # Original repo: [0.1, 1.0]
     l2_reg=0.0,
     n1=10000,
     n2=20000
@@ -74,6 +77,10 @@ EXAMPLE1_CONFIG = ExperimentConfig(
 # Paper specs: n1=2,000, 2 hidden layers (h=10, 15, 20 neurons first layer, 2 output)
 # Distribution: X ~ N(0, 0.5*I_5)
 # Gamma: 4.0 to 6.0
+#
+# NOTE: Ablation study found that paper's shallow architectures [h, 2] perform poorly
+# (error factors > 100,000x). A deeper [20, 10, 2] network with more training achieves
+# the target 3-4x error factor. See ablation_results.md for details.
 EXAMPLE2_CONFIG = ExperimentConfig(
     name="Example2_BallComplement",
     description="5D ball complement with infinite dominating points",
@@ -81,13 +88,13 @@ EXAMPLE2_CONFIG = ExperimentConfig(
     mu=np.zeros(5),
     sigma=np.sqrt(0.5),
     gamma_values=[4.0, 4.25, 4.5, 4.75, 5.0, 5.25, 5.5, 5.75, 6.0],
-    hidden_dims=[10, 2],  # Can also try [15, 2] and [20, 2]
-    n_iters=2000,
+    hidden_dims=[20, 10, 2],  # Deeper network for better spherical boundary learning
+    n_iters=10000,  # Extended training for convergence
     batch_size=None,
     lr=5e-3,
-    class_weights=[1.0, 100.0],
-    l2_reg=0.0,
-    n1=2000,
+    class_weights=[1.0, 1.0],  # Equal weights
+    l2_reg=0.001,  # Small regularization
+    n1=4000,  # More training samples
     n2=8000
 )
 
@@ -157,7 +164,7 @@ EXAMPLE5_CONFIG = ExperimentConfig(
     n_iters=500,
     batch_size=200,
     lr=5e-3,
-    class_weights=[1.0, 200.0],
+    class_weights=[1.0, 1.0],
     l2_reg=0.0,
     n1=2000,
     n2=8000

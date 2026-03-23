@@ -28,7 +28,7 @@ from ..configs.experiment_configs import EXAMPLE4_CONFIG
 class Example4_NonGaussian:
     """Example 4: Non-Gaussian rare-event estimation via inverse transform."""
 
-    def __init__(self, gamma: float = 20.0):
+    def __init__(self, gamma: float = 140.0):
         """
         Initialize Example 4.
 
@@ -152,7 +152,7 @@ class Example4_NonGaussian:
         Returns:
             Tuple of (Y_stage1, labels)
         """
-        bound = 2.0 * self.dimension  # = 12
+        bound = 5.0  # Tighter range for heavy-tailed GPD marginals
         Y_stage1 = np.random.uniform(-bound, bound, size=(n1, self.dimension))
         labels = self.indicator_function_y(Y_stage1)
         return Y_stage1, labels
@@ -221,6 +221,7 @@ class Example4_NonGaussian:
             lr=self.config.lr,
             class_weights=self.config.class_weights,
             l2_reg=self.config.l2_reg,
+            use_true_indicator=True,
             verbose=verbose
         )
 

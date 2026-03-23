@@ -253,17 +253,29 @@ class DominatingPointSolver:
         if self.solver_name == 'gurobi':
             solver.options['NonConvex'] = 2
             solver.options['MIPGap'] = 1e-4
-            solver.options['TimeLimit'] = 300  # 5 min per solve
+            solver.options['TimeLimit'] = 1800  # 30 min per solve (needed for 5D MINLPs with large gap)
+            solver.options['Threads'] = 4  # Cap threads for parallel process execution
 
         # Solve initial problem
         results = solver.solve(self.model, tee=verbose)
         status = results.solver.status
+        termination = str(results.solver.termination_condition)
 
         if verbose:
-            print(f"Initial solve status: {status}")
+            print(f"Initial solve status: {status}, termination: {termination}")
 
-        if status != 'ok':
-            print("Warning: Initial optimization failed")
+        # Accept solutions from both optimal and time-limited runs
+        # Gurobi returns status='aborted' on time limit but may have feasible solutions
+        has_solution = False
+        if status in ('ok', 'aborted'):
+            try:
+                val = self.model.x[0]()
+                has_solution = val is not None
+            except Exception:
+                pass
+
+        if not has_solution:
+            print("Warning: Initial optimization failed - no feasible solution found")
             return np.array([])
 
         # Extract first dominating point
@@ -282,19 +294,45 @@ class DominatingPointSolver:
             # where s_{x*} = (x* - mu) / sigma^2 is the tilting direction
             x_prev = x_sol.copy()
 
-            def cutting_plane_expr():
-                return self.eps_ignore + sum(
-                    (x_prev[i] - self.mu[i]) * (self.model.x[i] - x_prev[i])
-                    for i in range(self.input_dim)
-                )
+            # Check if x_prev is at (or very near) the mean — the standard
+            # cutting plane degenerates to eps <= 0 (always infeasible) when
+            # x* = mu because the tilting direction s = x* - mu = 0.
+            # In that case, use a ball exclusion constraint instead.
+            dist_to_mu = np.sum((x_prev - self.mu) ** 2)
 
-            self.model.cuts.add(cutting_plane_expr() <= 0)
+            if dist_to_mu < 1e-6:
+                # Ball exclusion: ||x - mu||^2 >= eps_ignore
+                # Forces solver to find DPs away from the mean
+                def ball_exclusion_expr():
+                    return sum(
+                        (self.model.x[i] - self.mu[i]) ** 2
+                        for i in range(self.input_dim)
+                    )
+                self.model.cuts.add(ball_exclusion_expr() >= self.eps_ignore)
+                if verbose:
+                    print(f"  (Using ball exclusion — DP at mean)")
+            else:
+                def cutting_plane_expr():
+                    return self.eps_ignore + sum(
+                        (x_prev[i] - self.mu[i]) * (self.model.x[i] - x_prev[i])
+                        for i in range(self.input_dim)
+                    )
+                self.model.cuts.add(cutting_plane_expr() <= 0)
 
             # Solve again
             results = solver.solve(self.model, tee=False)
             status = results.solver.status
 
-            if status != 'ok':
+            # Check if a feasible solution exists (handles time-limited runs too)
+            iter_has_solution = False
+            if status in ('ok', 'aborted'):
+                try:
+                    val = self.model.x[0]()
+                    iter_has_solution = val is not None
+                except Exception:
+                    pass
+
+            if not iter_has_solution:
                 if verbose:
                     print(f"Stopped at iteration {iteration}: no more feasible solutions")
                 break

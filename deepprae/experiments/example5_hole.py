@@ -100,11 +100,7 @@ class Example5_Hole:
 
     def generate_stage1_samples(self, n1: int) -> tuple:
         """
-        Generate Stage 1 samples with modified T_0' preprocessing.
-
-        Uses uniform sampling in a bounding box around the rare-event set,
-        then applies the paper's modified filter: remove non-rare samples
-        that are dominated by rare samples (for non-OM set handling).
+        Generate Stage 1 samples via uniform sampling in bounding box.
 
         Args:
             n1: Number of Stage 1 samples.
@@ -121,20 +117,64 @@ class Example5_Hole:
 
         return X_stage1, labels
 
+    def apply_t0_prime_filter(self, X: np.ndarray, labels: np.ndarray) -> tuple:
+        """
+        Modified Deep-PrAE T_0' preprocessing for non-orthogonally-monotone sets.
+
+        Paper Section 5.5: Replace T_0 with T_0' by relabeling non-rare samples
+        that are component-wise dominated by any rare sample. This effectively
+        "fills in" the hole during classifier training, so the learned boundary
+        approximates the union of balls without the hole.
+
+        T_0' = {x in T_0 : nexists x' in T_1 s.t. x' <= x}
+
+        Any non-rare x for which some rare x' satisfies x' <= x (component-wise)
+        is relabeled as rare. In-hole points surrounded by rare points get relabeled.
+
+        Args:
+            X: Input samples, shape [N, d]
+            labels: Binary labels, shape [N,]
+
+        Returns:
+            Tuple of (X, modified_labels, num_relabeled)
+        """
+        rare_mask = labels == 1
+        T1 = X[rare_mask]
+
+        if len(T1) == 0:
+            return X, labels, 0
+
+        modified_labels = labels.copy()
+        relabeled = 0
+
+        non_rare_indices = np.where(labels == 0)[0]
+        for i in non_rare_indices:
+            # Check if any rare point x' satisfies x' <= x[i] component-wise
+            if np.any(np.all(T1 <= X[i], axis=1)):
+                modified_labels[i] = 1.0
+                relabeled += 1
+
+        return X, modified_labels, relabeled
+
     def run(
         self,
         n1: Optional[int] = None,
         n2: Optional[int] = None,
         verbose: bool = True,
+        use_true_indicator: bool = True,
+        apply_t0_prime: bool = True,
         _test_mode: bool = False
     ) -> Dict:
         """
-        Run Deep-PrAE for Example 5.
+        Run Modified Deep-PrAE for Example 5.
 
         Args:
             n1: Stage 1 samples (default: 2000)
             n2: Stage 2 samples (default: 8000)
             verbose: Print progress
+            use_true_indicator: If True, use true indicator in Stage 2 (Mod mode).
+                               Paper's Modified Deep-PrAE requires this for sets with holes.
+            apply_t0_prime: If True, apply T_0' preprocessing to relabel in-hole samples.
             _test_mode: Return dummy results for testing
 
         Returns:
@@ -149,9 +189,10 @@ class Example5_Hole:
                 gamma=self.gamma, n1=n1, n2=n2
             )
 
+        mode_name = "Mod" if use_true_indicator else "UB"
         if verbose:
             print(f"\n{'='*70}")
-            print(f"Example 5: Rare-event Set with Hole")
+            print(f"Example 5: Rare-event Set with Hole [Modified Deep-PrAE {mode_name}]")
             print(f"{'='*70}")
             print(f"Gamma: {self.gamma}")
             print(f"Hole: center={self.hole_center}, radius={self.hole_radius}")
@@ -159,6 +200,7 @@ class Example5_Hole:
             print(f"Ball 2: center={self.ball2_center}, radius={self.ball2_radius}")
             print(f"Distribution: N({self.mu}, {self.sigma**2}*I_2)")
             print(f"Stage 1 (n1): {n1}, Stage 2 (n2): {n2}")
+            print(f"T_0' preprocessing: {apply_t0_prime}")
             print(f"{'='*70}\n")
 
         # Generate Stage 1 samples
@@ -167,6 +209,15 @@ class Example5_Hole:
         if verbose:
             num_rare = int(labels.sum())
             print(f"Rare events in Stage 1: {num_rare}/{n1} ({100*num_rare/n1:.2f}%)")
+
+        # Apply T_0' preprocessing (paper Section 5.5)
+        num_relabeled = 0
+        if apply_t0_prime:
+            X_stage1, labels, num_relabeled = self.apply_t0_prime_filter(X_stage1, labels)
+            if verbose:
+                print(f"T_0' relabeled {num_relabeled} non-rare samples as rare")
+                num_rare_after = int(labels.sum())
+                print(f"After T_0': {num_rare_after}/{n1} rare ({100*num_rare_after/n1:.2f}%)")
 
         # Run Deep-PrAE
         deep_prae = DeepPrAE(
@@ -187,6 +238,7 @@ class Example5_Hole:
             lr=self.config.lr,
             class_weights=self.config.class_weights,
             l2_reg=self.config.l2_reg,
+            use_true_indicator=use_true_indicator,
             verbose=verbose
         )
 
@@ -196,5 +248,7 @@ class Example5_Hole:
         results['hole_center'] = self.hole_center.tolist()
         results['n1'] = n1
         results['n2'] = n2
+        results['t0_prime_relabeled'] = num_relabeled
+        results['apply_t0_prime'] = apply_t0_prime
 
         return results

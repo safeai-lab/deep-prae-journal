@@ -146,6 +146,15 @@ class DeepPrAE:
             print(f"  Solver completed in {time.time() - solver_start:.2f}s")
             print(f"  Found {len(self.dominating_points)} dominating points")
 
+        # Check if optimization found any points
+        if self.dominating_points is None or len(self.dominating_points) == 0:
+            raise RuntimeError(
+                "Gurobi optimization failed to find any dominating points. "
+                "Possible causes: 1) Solver timeout (increase TimeLimit), "
+                "2) Infeasible model, 3) License issue. "
+                "Try: increasing training epochs, adjusting class weights, or checking Gurobi license."
+            )
+
         self.stage1_time = time.time() - stage1_start
 
         stage1_info = {
@@ -159,6 +168,7 @@ class DeepPrAE:
     def stage2(
         self,
         n2: int,
+        use_true_indicator: bool = False,
         verbose: bool = False
     ) -> Dict:
         """
@@ -166,6 +176,8 @@ class DeepPrAE:
 
         Args:
             n2: Number of Stage 2 samples
+            use_true_indicator: If True, use the true indicator function (Deep-PrAE Mod)
+                               instead of the classifier indicator (Deep-PrAE UB)
             verbose: Whether to print progress
 
         Returns:
@@ -176,9 +188,10 @@ class DeepPrAE:
 
         stage2_start = time.time()
 
+        mode_name = "Mod (true indicator)" if use_true_indicator else "UB (classifier)"
         if verbose:
             print("\n" + "=" * 60)
-            print("Stage 2: Importance Sampling")
+            print(f"Stage 2: Importance Sampling [{mode_name}]")
             print("=" * 60)
 
         # Construct proposal distribution
@@ -198,37 +211,36 @@ class DeepPrAE:
 
         X_stage2 = self.proposal_dist.sample(n2)
 
-        # Evaluate classifier on samples
-        import torch
-        self.classifier.eval()
-        with torch.no_grad():
-            X_tensor = torch.Tensor(X_stage2)
-            outputs = self.classifier(X_tensor)
-            Y_pred = (outputs[:, 1] >= outputs[:, 0]).cpu().numpy().astype(float)
+        # Choose indicator function for IS
+        if use_true_indicator:
+            is_indicator = self.indicator_function
+        else:
+            import torch
+            def classifier_indicator(x):
+                """Indicator based on classifier predictions."""
+                if x.ndim == 1:
+                    x = x.reshape(1, -1)
+                with torch.no_grad():
+                    x_tensor = torch.Tensor(x)
+                    outputs = self.classifier(x_tensor)
+                    return (outputs[:, 1] >= outputs[:, 0]).cpu().numpy().astype(float)
+            is_indicator = classifier_indicator
 
         # Compute IS estimate
         if verbose:
             print(f"\n[3/3] Computing importance sampling estimate...")
 
-        def classifier_indicator(x):
-            """Indicator based on classifier predictions."""
-            if x.ndim == 1:
-                x = x.reshape(1, -1)
-            with torch.no_grad():
-                x_tensor = torch.Tensor(x)
-                outputs = self.classifier(x_tensor)
-                return (outputs[:, 1] >= outputs[:, 0]).cpu().numpy().astype(float)
-
         estimator = ImportanceSamplingEstimator(
             original_pdf=self.original_pdf,
             proposal_pdf=self.proposal_dist.pdf,
-            indicator_function=classifier_indicator
+            indicator_function=is_indicator
         )
 
         results = estimator.estimate(X_stage2, return_details=True)
 
         self.stage2_time = time.time() - stage2_start
         results['stage2_time'] = self.stage2_time
+        results['mode'] = 'mod' if use_true_indicator else 'ub'
 
         if verbose:
             print(f"\n  Estimated probability: {results['probability']:.6e}")
@@ -250,6 +262,7 @@ class DeepPrAE:
         l2_reg: float = 0.0,
         solver: str = 'gurobi',
         max_dominating_points: int = 100,
+        use_true_indicator: bool = False,
         verbose: bool = True
     ) -> Dict:
         """
@@ -267,6 +280,7 @@ class DeepPrAE:
             l2_reg: L2 regularization
             solver: Optimization solver
             max_dominating_points: Max dominating points
+            use_true_indicator: If True, use true indicator in Stage 2 (Mod mode)
             verbose: Print progress
 
         Returns:
@@ -288,7 +302,11 @@ class DeepPrAE:
         )
 
         # Stage 2
-        stage2_results = self.stage2(n2=n2, verbose=verbose)
+        stage2_results = self.stage2(
+            n2=n2,
+            use_true_indicator=use_true_indicator,
+            verbose=verbose
+        )
 
         # Combine results
         results = {
@@ -299,8 +317,9 @@ class DeepPrAE:
         }
 
         if verbose:
+            mode_name = "Mod" if use_true_indicator else "UB"
             print("\n" + "=" * 60)
-            print("Deep-PrAE Complete")
+            print(f"Deep-PrAE Complete [{mode_name}]")
             print("=" * 60)
             print(f"Total samples: {results['total_samples']}")
             print(f"Total time: {results['total_time']:.2f}s")
