@@ -70,6 +70,7 @@ class Example3_RandomWalk:
             n_iters=self.config.n_iters,
             l2_reg=self.config.l2_reg,
             class_weights=self.config.class_weights,
+            use_true_indicator=True,
             verbose=verbose
         )
 
