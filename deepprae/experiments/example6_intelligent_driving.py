@@ -124,7 +124,7 @@ class Example6_IntelligentDriving:
             epoch = min(int(t / self.epoch_dt), self.n_epochs - 1)
 
             # Lead vehicle acceleration from input (scaled)
-            a_l = (lv_actions[epoch] - self.mu[0]) * 2.0  # Center and scale
+            a_l = (lv_actions[epoch] - self.mu[0]) * 1.0  # Center at mu=10, scale=1.0
 
             # Gap (bumper to bumper)
             gap = x_l - x_f - p['L']

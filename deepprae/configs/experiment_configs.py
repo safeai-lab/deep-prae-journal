@@ -81,6 +81,10 @@ EXAMPLE1_CONFIG = ExperimentConfig(
 # NOTE: Ablation study found that paper's shallow architectures [h, 2] perform poorly
 # (error factors > 100,000x). A deeper [20, 10, 2] network with more training achieves
 # the target 3-4x error factor. See ablation_results.md for details.
+#
+# Uniform sampling with class_weights=[4.0, 1.0] gives the tightest valid upper bound
+# (EF=1.26x at gamma=4.75), outperforming stratified (EF=2.94x). Validated across
+# 90 GCP trials (9 gammas x 5 trials x 2 modes). See ex2-analysis.md for details.
 EXAMPLE2_CONFIG = ExperimentConfig(
     name="Example2_BallComplement",
     description="5D ball complement with infinite dominating points",
@@ -92,7 +96,7 @@ EXAMPLE2_CONFIG = ExperimentConfig(
     n_iters=10000,  # Extended training for convergence
     batch_size=None,
     lr=5e-3,
-    class_weights=[1.0, 1.0],  # Equal weights
+    class_weights=[4.0, 1.0],  # Uniform sampling: balances ~10% non-rare / ~90% rare
     l2_reg=0.001,  # Small regularization
     n1=4000,  # More training samples
     n2=8000

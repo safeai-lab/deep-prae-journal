@@ -30,7 +30,7 @@ class SamplingConfig:
     - "uniform": Uniform sampling on hypercube [-bound*gamma, bound*gamma]^d
     """
     # Sampling mode: "stratified" or "uniform"
-    sampling_mode: str = "stratified"
+    sampling_mode: str = "uniform"
     # For uniform mode: sample on [-uniform_bound * gamma, uniform_bound * gamma]^d
     uniform_bound: float = 1.1
 
